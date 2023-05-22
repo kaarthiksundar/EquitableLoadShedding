@@ -1,4 +1,6 @@
 [deps]
+CPLEX = "a076750e-1247-5638-91d2-ce28b192dca0"
+JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
 OpenBLAS32_jll = "656ef2d0-ae68-5445-9ca0-591084a874a2"
 PowerModels = "c36e90e8-916a-50a6-bd94-075b64ef4655"
 PowerModelsRestoration = "23adbb12-a187-11e9-26a2-eb4d4e6e68fb"
