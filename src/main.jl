@@ -18,9 +18,9 @@ function modify_risk_weight(data::Dict{String,Any}, weight::Number = 0.5)
     data["risk_weight"] = weight 
 end 
 
-# modify risk lower bound 
-function modify_risk_lb(data::Dict{String,Any}, lb::Number)
-    data["risk_lb"] = lb
+# modify risk upper bound 
+function modify_risk_ub(data::Dict{String,Any}, ub::Number)
+    data["risk_ub"] = ub
 end 
 
 # compute total risk 
@@ -95,12 +95,21 @@ function main()
     demand = compute_demand(pm)
     total_risk = pm |> compute_total_risk
 
-    for risk_lb in range(0, total_risk; length = 400)
-        modify_risk_lb(data, risk_lb)
+    for risk_ub in range(0, total_risk; length = 5)
+        modify_risk_ub(data, risk_ub)
         pm_ops = data |> get_ops_pm 
         result_ops, risk_ops = solve_ops(pm_ops)
+        served_ops = compute_load_served(result_ops)
         pm_eq_ops = data |> get_equitable_ops_pm 
-        result_eq_ops, risk_eq_ops = solve_ops(pm_eq_ops)
+        result_eq_ops, risk_eq_ops = solve_ops(pm_eq_ops; optimizer = scip)
+        served_eq_ops = compute_load_served(result_eq_ops)
+        println("##### $risk_ub #####")
+        @show risk_ops 
+        @show risk_eq_ops
+        println("total load: $(demand.total)")
+        println("total load served ops: $(served_ops.total)")
+        println("total load served eq ops: $(served_eq_ops.total)")
+        println("###################")
     end 
     # result, risk = pm |> solve_ops 
     # served = compute_load_served(result)
