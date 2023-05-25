@@ -1,6 +1,7 @@
 using PowerModels, PowerModelsWildfire
 using JuMP, SCIP, CPLEX 
 
+PowerModels.silence()
 const _PM = PowerModels 
 const _PMW = PowerModelsWildfire
 
@@ -15,6 +16,11 @@ get_data(file) = _PM.parse_file(file)
 function modify_risk_weight(data::Dict{String,Any}, weight::Number = 0.5)
     (weight <= 0.0 || weight >= 1.0) && (@warn "weight $weight has to be in [0, 1]"; return)
     data["risk_weight"] = weight 
+end 
+
+# modify risk lower bound 
+function modify_risk_lb(data::Dict{String,Any}, lb::Number)
+    data["risk_lb"] = lb
 end 
 
 # compute total risk 
@@ -45,24 +51,29 @@ function compute_load_served(result::Dict)::NamedTuple
     return (load_served = load_served, total = round(total_load_served; digits=2))
 end 
 
-# solve Optimal Power Shut-off model 
-function solve_ops(data::Dict)::NamedTuple 
-    # instantiate the model using DC power flow and the OPS formulation 
-    pm = instantiate_model(data, 
-        _PM.DCPPowerModel, 
-        _PMW.build_ops; 
-        ref_extensions=[_PM.ref_add_on_off_va_bounds!]
-    )
+# instantiate the model using DC power flow and the OPS formulation 
+get_ops_pm(data::Dict) = instantiate_model(data, 
+    _PM.DCPPowerModel, 
+    _PMW.build_ops; 
+    ref_extensions=[_PM.ref_add_on_off_va_bounds!]
+)
 
+get_equitable_ops_pm(data::Dict) = instantiate_model(data, 
+    _PM.DCPPowerModel, 
+    _PMW.build_equitable_ops; 
+    ref_extensions=[_PM.ref_add_on_off_va_bounds!]
+)
+
+# solve Optimal Power Shut-off model 
+function solve_ops(pm::AbstractPowerModel; optimizer = cplex)::NamedTuple 
     # solve model 
-    result = optimize_model!(pm, optimizer = cplex)
+    result = optimize_model!(pm, optimizer = optimizer)
 
     # the on-off variables 
     z_demand = JuMP.value.(_PM.var(pm, nw_id_default, :z_demand))
     z_gen = JuMP.value.(_PM.var(pm, nw_id_default, :z_gen))
     z_branch = JuMP.value.(_PM.var(pm, nw_id_default, :z_branch))
     z_bus = JuMP.value.(_PM.var(pm, nw_id_default, :z_bus))
-
 
     # compute actual risk for ops solution 
     risk = sum(z_gen[i] * gen["power_risk"] + gen["base_risk"] for (i,gen) in _PM.ref(pm, :gen)) + 
@@ -72,21 +83,32 @@ function solve_ops(data::Dict)::NamedTuple
 
     risk = round(risk; digits=2)
 
-    return (pm = pm, result = result, risk = risk)
+    return (result = result, risk = risk)
 end 
 
 
 function main() 
     data = file |> get_data 
     modify_risk_weight(data, 0.2)
-    pm, result, risk = data |> solve_ops 
+    pm = data |> get_ops_pm
+
+    demand = compute_demand(pm)
     total_risk = pm |> compute_total_risk
-    demand = compute_demand(pm) 
-    served = compute_load_served(result)
-    println("total load: $(demand.total)")
-    println("total load served: $(served.total)")
-    println("total risk: $total_risk")
-    println("actual risk: $risk")
+
+    for risk_lb in range(0, total_risk; length = 400)
+        modify_risk_lb(data, risk_lb)
+        pm_ops = data |> get_ops_pm 
+        result_ops, risk_ops = solve_ops(pm_ops)
+        pm_eq_ops = data |> get_equitable_ops_pm 
+        result_eq_ops, risk_eq_ops = solve_ops(pm_eq_ops)
+    end 
+    # result, risk = pm |> solve_ops 
+    # served = compute_load_served(result)
+    
+    # println("total load: $(demand.total)")
+    # println("total risk: $total_risk")
+    # println("total load served: $(served.total)")
+    # println("actual risk: $risk")
 end 
 
 main()
