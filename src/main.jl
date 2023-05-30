@@ -23,6 +23,11 @@ function modify_risk_ub(data::Dict{String,Any}, ub::Number)
     data["risk_ub"] = ub
 end 
 
+# modify the log constant 
+function modify_log_constant(data::Dict{String,Any}, k::Number) 
+    data["log_constant"] = k
+end 
+
 # compute total risk 
 function compute_total_risk(pm::AbstractPowerModel)::Number 
     total_risk = sum(gen["power_risk"] + gen["base_risk"] for (i,gen) in _PM.ref(pm, :gen)) + 
@@ -96,6 +101,8 @@ function main()
     total_risk = pm |> compute_total_risk
 
     for risk_ub in range(0, total_risk; length = 5)
+        log_constant = 0.01 
+        modify_log_constant(data, log_constant)
         modify_risk_ub(data, risk_ub)
         pm_ops = data |> get_ops_pm 
         result_ops, risk_ops = solve_ops(pm_ops)
@@ -106,6 +113,7 @@ function main()
         println("##### $risk_ub #####")
         @show risk_ops 
         @show risk_eq_ops
+        @show log_constant
         println("total load: $(demand.total)")
         println("total load served ops: $(served_ops.total)")
         println("total load served eq ops: $(served_eq_ops.total)")
