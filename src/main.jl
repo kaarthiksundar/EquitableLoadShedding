@@ -1,5 +1,6 @@
 using PowerModels, PowerModelsWildfire
 using JuMP, SCIP, CPLEX 
+import JSON
 
 PowerModels.silence()
 const _PM = PowerModels 
@@ -91,6 +92,43 @@ function solve_ops(pm::AbstractPowerModel; optimizer = cplex)::NamedTuple
     return (result = result, risk = risk)
 end 
 
+function write_json_output(output::NamedTuple)
+    log_constant = output.log_constant
+    result_ops = output.result_ops 
+    risk_ops = output.risk_ops 
+    result_eq_ops = output.result_eq_ops 
+    risk_eq_ops = output.risk_eq_ops 
+    demand = output.demand 
+    served_ops = output.served_ops 
+    served_eq_ops = output.served_eq_ops 
+    risk_ub = output.risk_ub 
+    in_file = output.file
+    id = output.id
+    
+    folder_name = filter(x -> !(x in ["", "m", "data"]), split(in_file, ('.', '/'))) |> first
+    folder_name = "./output/" * folder_name 
+
+    (!isdir(folder_name)) && (mkdir(folder_name))
+    instance_name = folder_name * "/" * string(id) * ".json"
+
+    to_write = Dict{String,Any}(
+        "log_constant" => log_constant, 
+        "risk_upper_bound" => risk_ub,
+        "risk_ops" => risk_ops, 
+        "risk_equitable_ops" => risk_eq_ops, 
+        "demand" => demand.demand, 
+        "total_demand" => demand.total, 
+        "load_served_ops" => served_ops.load_served, 
+        "total_load_served_ops" => served_ops.total, 
+        "load_served_equitable_ops" => served_eq_ops.load_served, 
+        "total_load_served_equitable_ops" => served_eq_ops.total 
+    )
+
+    open(instance_name, "w") do f
+        JSON.print(f, to_write, 4)
+    end
+
+end 
 
 function main() 
     data = file |> get_data 
@@ -99,9 +137,11 @@ function main()
 
     demand = compute_demand(pm)
     total_risk = pm |> compute_total_risk
+    max_risk = 90.0
+    num_points = 200
 
-    for risk_ub in range(0, total_risk; length = 5)
-        log_constant = 0.01 
+    for (i, risk_ub) in enumerate(range(0, max_risk; length = num_points))
+        log_constant = 0.0001 
         modify_log_constant(data, log_constant)
         modify_risk_ub(data, risk_ub)
         pm_ops = data |> get_ops_pm 
@@ -110,14 +150,28 @@ function main()
         pm_eq_ops = data |> get_equitable_ops_pm 
         result_eq_ops, risk_eq_ops = solve_ops(pm_eq_ops; optimizer = scip)
         served_eq_ops = compute_load_served(result_eq_ops)
-        println("##### $risk_ub #####")
-        @show risk_ops 
-        @show risk_eq_ops
-        @show log_constant
-        println("total load: $(demand.total)")
-        println("total load served ops: $(served_ops.total)")
-        println("total load served eq ops: $(served_eq_ops.total)")
-        println("###################")
+        output = (
+            log_constant = log_constant, 
+            result_ops = result_ops, 
+            risk_ops = risk_ops, 
+            result_eq_ops = result_eq_ops, 
+            risk_eq_ops = risk_eq_ops, 
+            demand = demand, 
+            served_ops = served_ops, 
+            served_eq_ops = served_eq_ops, 
+            risk_ub = risk_ub, 
+            file = file,
+            id = i
+        )
+        write_json_output(output)
+        # println("##### $risk_ub #####")
+        # @show risk_ops 
+        # @show risk_eq_ops
+        # @show log_constant
+        # println("total load: $(demand.total)")
+        # println("total load served ops: $(served_ops.total)")
+        # println("total load served eq ops: $(served_eq_ops.total)")
+        # println("###################")
     end 
     # result, risk = pm |> solve_ops 
     # served = compute_load_served(result)
