@@ -2,12 +2,12 @@ using PowerModels, PowerModelsWildfire
 using JuMP, SCIP, CPLEX 
 import JSON
 
+
 PowerModels.silence()
 const _PM = PowerModels 
 const _PMW = PowerModelsWildfire
 
-scip = JuMP.optimizer_with_attributes(SCIP.Optimizer)
-cplex = JuMP.optimizer_with_attributes(CPLEX.Optimizer)
+
 
 file = "./data/RTS_GMLC_risk.m"
 
@@ -71,9 +71,20 @@ get_equitable_ops_pm(data::Dict) = instantiate_model(data,
 )
 
 # solve Optimal Power Shut-off model 
-function solve_ops(pm::AbstractPowerModel; optimizer = cplex)::NamedTuple 
+function solve_ops(pm::AbstractPowerModel; optimizer = :cplex)::NamedTuple 
+    scip = SCIP.Optimizer()
+    MOI.set(scip, MOI.RawOptimizerAttribute("display/verblevel"), 0)
+    cplex = optimizer_with_attributes(CPLEX.Optimizer, "CPX_PARAM_SCRIND"=>0)
+    if optimizer == :cplex 
+        solver = cplex 
+    elseif optimizer == :scip  
+        solver = () -> scip
+    else 
+        error("unrecognized solver: solver can be either :cplex or :scip") 
+    end 
+
     # solve model 
-    result = optimize_model!(pm, optimizer = optimizer)
+    result = optimize_model!(pm, optimizer = solver)
 
     # the on-off variables 
     z_demand = JuMP.value.(_PM.var(pm, nw_id_default, :z_demand))
@@ -148,7 +159,7 @@ function main()
         result_ops, risk_ops = solve_ops(pm_ops)
         served_ops = compute_load_served(result_ops)
         pm_eq_ops = data |> get_equitable_ops_pm 
-        result_eq_ops, risk_eq_ops = solve_ops(pm_eq_ops; optimizer = scip)
+        result_eq_ops, risk_eq_ops = solve_ops(pm_eq_ops; optimizer = :scip)
         served_eq_ops = compute_load_served(result_eq_ops)
         output = (
             log_constant = log_constant, 
@@ -164,14 +175,14 @@ function main()
             id = i
         )
         write_json_output(output)
-        # println("##### $risk_ub #####")
-        # @show risk_ops 
-        # @show risk_eq_ops
-        # @show log_constant
-        # println("total load: $(demand.total)")
-        # println("total load served ops: $(served_ops.total)")
-        # println("total load served eq ops: $(served_eq_ops.total)")
-        # println("###################")
+        println("##### $risk_ub #####")
+        @show risk_ops 
+        @show risk_eq_ops
+        @show log_constant
+        println("total load: $(demand.total)")
+        println("total load served ops: $(served_ops.total)")
+        println("total load served eq ops: $(served_eq_ops.total)")
+        println("###################")
     end 
     # result, risk = pm |> solve_ops 
     # served = compute_load_served(result)
