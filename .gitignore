@@ -24,5 +24,6 @@ docs/site/
 Manifest.toml
 
 output/*
-
+git-output/* 
+!git-output/*.zip
 !*/.gitkeep
